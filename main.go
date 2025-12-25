@@ -28,7 +28,7 @@ func main() {
 		log.Fatalf("Failed to find interface ip: %v", err)
 	}
 
-	_, networkIP, broadcastIP := pkg.GenerateIPs(ipnet)
+	usableIPs, networkIP, broadcastIP := pkg.GenerateIPs(ipnet)
 
 	// open live capture to capture raw bytes
 	handle, err := pcap.OpenLive(iface.Name, snapshotLen, promiscuous, timeout)
@@ -44,35 +44,33 @@ func main() {
 		EthernetType: layers.EthernetTypeARP,
 	}
 
-	// construct arp layer
-	arp := &layers.ARP{
-		AddrType:        layers.LinkTypeEthernet,
-		Protocol:        layers.EthernetTypeIPv4,
-		HwAddressSize:   6,
-		ProtAddressSize: 4,
-		Operation:       layers.ARPRequest,
-
-		SourceHwAddress:   iface.HardwareAddr,
-		SourceProtAddress: ipnet.IP,
-
-		DstHwAddress:   []byte{0, 0, 0, 0, 0, 0},
-		DstProtAddress: []byte(net.ParseIP("192.168.0.101").To4()),
+	// send arp requests for each usable ip
+	for _, ip := range usableIPs {
+		pkg.SendARP(handle, iface, ipnet, eth, ip)
 	}
 
-	buffer := gopacket.NewSerializeBuffer()
-	options := gopacket.SerializeOptions{
-		FixLengths:       true,
-		ComputeChecksums: true,
-	}
+	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 
-	err = gopacket.SerializeLayers(buffer, options, eth, arp)
-	if err != nil {
-		log.Fatalf("Failed to serialize packet: %v", err)
-	}
+	// receive packets
+	for packet := range packetSource.Packets() {
 
-	err = handle.WritePacketData(buffer.Bytes())
-	if err != nil {
-		log.Fatalf("Failed to write packet: %v", err)
+		if packet == nil {
+			continue
+		}
+
+		arp, ok := packet.Layer(layers.LayerTypeARP).(*layers.ARP)
+		if !ok {
+			continue
+		}
+
+		if arp.Operation != layers.ARPReply {
+			continue
+		}
+
+		ip := net.IP(arp.SourceProtAddress)
+		mac := net.HardwareAddr(arp.SourceHwAddress)
+
+		fmt.Printf("Host found: %s → %s\n", ip, mac)
 	}
 
 	fmt.Println("Interface Name:", iface.Name)
