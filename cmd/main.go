@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/faiyaz032/arp-scanner/pkg/arp"
-	network "github.com/faiyaz032/arp-scanner/pkg/netowork"
+	network "github.com/faiyaz032/arp-scanner/pkg/network"
 
 	"github.com/google/gopacket/pcap"
 )
